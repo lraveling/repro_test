@@ -1,0 +1,335 @@
+---
+title: "Reproducibility for distributional semantics - An applied example"
+author: Laura Raveling
+date: "2025-05-19"
+format: 
+ pdf:
+    cite-method: biblatex
+    mainfont: "Segoe UI Emoji"
+    emoji-math: "Segoe UI Emoji"
+bibliography: references.bib
+---
+
+## Reproducibility setup
+- testing the repro set up with different tools: quarto, python and VS Code 
+- R Studio also renders quarto markdown files (with the jupyter engine, knitr only knows R)
+- combination with latex style rendering
+- there are several options to render latex in R Studio 
+
+## Modeling semantic search processes
+
+- How can a more "static" and a more "dynamic" approach to representations (of representations) be effectively combined? How to model processes over embeddings and how to model the interaction between the structure of the search space and the search processes systematically? 
+- see, for instance the debate about models and processes (e.g. [@hills_is_2022])
+- How to make the simulation of a search process more "biologically plausible"? 
+- test this approach: setup architecture to combine embeddings with systematic searches with agent based modeling or different methods. The notebooks are an attempt to work with the method in [@bader] who are proposing and agent based model for semantic memory search 
+- inspired by animal foraging model 
+- relevance of animal behavior for search heuristics:
+- see for instance ([@mobbs_foraging_2018]), e.g. citing Tinbergen:
+    "It begins to be difficult, and even in some cases impossible, to say where ethology stops and neurophysiology begins." (Tinbergen, 1963)
+
+- "A generative approach allows for the construction of a virtual environment that can be used to study different mechanisms and their interactions, providing a way to analyze systems that may be difficult to get data from (such as specific clinical populations with cognitive impairments)." [@bader, p. 1115]
+
+```{python}
+#| echo: false
+import pandas as pd 
+import numpy as np 
+import math 
+import umap
+
+animals = pd.read_csv('labels.csv', header=None)
+frequencies = pd.read_csv('frequencies.csv', header=None)
+cos_sims = pd.read_csv('similaritymatrix.csv', header=None)
+```
+
+# Agent based modeling overview
+
+- as more "dynamic" modeling approach
+- [python library mesa] (https://mesa.readthedocs.io/latest/)
+- (https://www.youtube.com/watch?v=mScpHTIi-kM) [Youtube Video about Prisoner's Dilemma] 
+- or sociology use case: [@keijzer2022complex]
+
+# Tools and Data
+
+- from osf repository of replicated study 
+- the code is partly redundant to abm_semantics.py to explain and visualize
+- whole model is in abm_semantics.py
+- for running the model in the python script: check if you need to install the requirements in the "requirements.txt" file with pip
+- get the word embedding data: in this case the word frequencies, cosine similarities and labels of the animal semantic fluency production task 
+- for this dataset, there are a total of N = `{python} len(cos_sims)` words in the corpus  
+- python library "mesa": this is intended as a high level library for agent based models
+- it is also possible to simply combine any "igraph"- structure with the search function
+- for now i wanted to test mesa, to get a high level understanding of the modeling workflow but i am not sure how practicable it is for the semantic search 
+
+# Plot data
+- decided to use umap instead of t-sne for ease of testing (not having to search for the code of another dimensionality reduction technique)
+- but maybe this also makes sense on a content-level, but i have no exact reference as to why 
+
+```{python}
+#| echo: false
+import warnings
+warnings.filterwarnings("ignore")
+cosim_data = cos_sims.values
+reducer = umap.UMAP(random_state=123) 
+sim_mapper = reducer.fit_transform(cosim_data) 
+
+```
+
+- visualize the data as voronoi plot because it looks like a cute spider web
+
+```{python}
+#| echo: false
+import matplotlib.pyplot as plt
+from scipy.spatial import Voronoi, voronoi_plot_2d
+vor_visual = Voronoi(sim_mapper)
+
+fig = voronoi_plot_2d(vor_visual, show_vertices=False,
+line_colors='pink',
+                      line_width=1.5, line_alpha=0.6, point_size=2)
+```
+
+# The model: 
+
+- one "agent" searches for the words in a semantic space according to the semantic scent algorithm
+- if you want to run the original versions of [@bader]s models, you have to download NetLogo (<https://ccl.northwestern.edu/netlogo/>)
+- sidenote: the NetLogo environment needs the python environment path variable specified to version that has the required packages preinstalled, at this point did know how to integrate this software into the reproducibility workflow for different operating systems 
+
+# Set up the model landscape 
+
+- build the model landscape: sample words weighted by production frequency
+- the model landscape is a 2 dimensional grid that is the search space
+- are there other plausible versions of this grid  such as the voronoi grid and how this could be integrated into the model ? 
+- format the data
+
+```{python}
+#| echo: false
+import pandas as pd 
+import random
+import mesa
+import seaborn as sns
+import numpy as np
+
+animal_itemlist = animals.values
+animal = []
+for i in animal_itemlist:
+    for p in i:
+        animal.append(p)
+    
+frequencies_list = frequencies.values
+freq = []
+for i in frequencies_list:
+    for p in i:
+        freq.append(p)
+
+# min max normalization to create sample probability weights
+
+# Min/Max normalization
+normfreaqs = (freq - np.min(freq)) / (np.max(freq) - np.min(freq))
+
+# sample 30 words to create model landscape 
+sampled_words = random.choices(animal, weights= normfreaqs, k = 30)
+
+# sample cosine similarities of sampled words
+cos_sims.index = animal
+cos_sims.head
+cos_sims.columns = animal
+
+sampled_cosims = cos_sims.loc[sampled_words,:]
+
+
+# convert cosine similarity to angular distance 
+def angular_dist(x):
+    ad = np.arccos(x) / np.pi
+    return ad
+
+random.seed(123)
+# check if it works
+test = angular_dist(1)
+
+sampled_distances = sampled_cosims.applymap(angular_dist)
+
+# create 2-D map of sampled data with umap
+import umap
+
+reducer = umap.UMAP(random_state=123) 
+dist_mapper = reducer.fit_transform(sampled_distances) 
+
+# maybe take the abolute values of each coordinate to stay in one quadrand? Does that make sense? 
+dist_mapper_abs = np.abs(dist_mapper)
+
+# convert to dataframe to label for sampling word zero
+dist_mapper_df = pd.DataFrame(dist_mapper_abs, index = sampled_words)
+
+# select initial agent position based on ln(freq)
+frequencies.index = animal
+sample_frequencies = frequencies.loc[sampled_words,:]
+sample_f = []
+for i in range(0,30):
+    sample_f.append(int(sample_frequencies.iloc[i,0]))
+
+log_freq = np.log(sample_f)
+word_zero = random.choices(sampled_words, weights= log_freq, k = 1)
+# create agent based model draft (basic setup test, work in progess)
+# Initialize words as coordinates of Voronoi Grid 
+dist_mapper_list_1 = []
+for i in dist_mapper_abs:
+    #l = [int(p) for p in i]
+    l = list(i)
+    dist_mapper_list_1.append(l)
+
+dist_mapper_list_2 = []
+for i in dist_mapper_abs:
+    l = [abs(int(p)) for p in i]
+    l = tuple(l)
+    dist_mapper_list_2.append(l)
+```
+
+- create a grid and add the words at coordinates defined by the 2-D embedding
+- the (graph) properties of these "fixed agents" are the word frequencies and their names
+
+```{python}
+#| echo: false
+from mesa.discrete_space import FixedAgent, CellAgent, OrthogonalMooreGrid
+class WordAgentGrid(FixedAgent):
+    """One word that does not change its position"""
+
+    def __init__(self, model, cell, name, word_frequency):
+        super().__init__(model)
+        self.cell = cell  # Instantiate agent with location (x,y)
+        self.name = name
+        self.freq = word_frequency 
+
+
+```
+
+ - create the "word seeker" agent that moves through the embedding grid according to the search function 
+
+```{python}
+#| echo: false
+class WordSeeker(CellAgent):
+    """One word (or thought) that changes position"""
+
+    def __init__(self, model, cell, name, word_frequency, cos_sims):
+        super().__init__(model)
+        self.cell = cell  # Instantiate agent with location (x,y)
+        self.name = name
+        self.freq = word_frequency 
+        self.cos_sims = cos_sims
+        self.local_sensitivity = 0.6
+        self.global_sensitivity = 0.8
+        self.reported_words = []
+
+    def report_start_word(self):
+        # start word at each tick 
+        print(self.name)
+
+    def step(self) -> None:
+        # the search function here
+        pass
+
+```
+
+- the search function (as in [@bader]): semantic scent
+- semantic scent function: "likelihood of switching from a patch based on the item just produced, and the proximity to neighborhood items" (p. 1116)
+- the model switches between a local and a global search strategy based on the semantic scent decision criterion 
+- this is supposed to be more plausible than random walks
+- the code of this notebook (not displayed in the pdf file) is a exemplary model setup, without the search functions just to see how it should work and to get plots
+
+```{python}
+#| echo: false
+def semantic_scent(cos_sims, current_item, neighbors, local_sensitivity):
+    sim_sum = np.sum(cos_sims.loc[current_item,neighbors])
+    p_switch = local_sensitivity / (local_sensitivity + sim_sum)
+    return p_switch
+```
+
+
+```{python}
+#| echo: false
+# Import Cell Agent, OrthogonalMooreGrid and VoronoiGrid
+import mesa
+class WordModelGrid(mesa.Model):
+    """A model with some number of agents."""
+
+    def __init__(self, n, word_ids, word_frequency, word_positions, cos_sims, sample_frequencies, seed = 123):
+        super().__init__(seed=seed)
+
+        self.num_agents = n
+        self.word_frequency = word_frequency
+        self.cos_sims = cos_sims
+        self.sample_frequencies = sample_frequencies
+        self.word_positions = word_positions
+        self.word_ids = word_ids
+        # Landscape - What type of landscape makes sense? 
+        # Initialize grid
+        self.grid = OrthogonalMooreGrid((15, 15), random=random, capacity=15)
+        # Create a fixed agent for each word and place them on the grid
+        for cell in self.grid.all_cells:
+            for idx, pos in enumerate(self.word_positions):
+                if cell.coordinate == pos:
+                    agent_name = self.word_ids[idx]
+                    freq = self.word_frequency[idx]
+                    fixed_agents = WordAgentGrid.create_agents(self, self.num_agents, cell, agent_name, freq)
+        
+        # Create a moving agent that starts at one word and moves according to some search function 
+        random_idx = np.random.randint(1, 30) # replace with variable with number of sampled agents
+        random_position = word_positions[random_idx]
+        r_id = word_ids[random_idx]
+        r_freq = word_frequency[random_idx]
+
+        for cell in self.grid.all_cells: #there must be a better method to select a random word
+                if cell.coordinate == random_position:
+                    self.moving_agent = WordSeeker.create_agents(self, self.num_agents, cell, r_id, r_freq, cos_sims)
+
+        #self.word_seeking_agent = random.choices(self.agents, k=1)
+        #print(self.word_seeking_agent.name)
+
+    def step(self):
+        # the search of the word seeking agent would be executed here:
+        # self.moving_agent.do("step")
+        pass
+
+
+# initialize the model 
+model = WordModelGrid(1, sampled_words, sample_f, dist_mapper_list_2, cos_sims, sample_frequencies)
+
+```
+
+- after creating the model, there should `{python} len(model.agents)` agents, 1 word seeker and 30 sampled words 
+- visualize the model landscape 
+
+```{python}
+#| echo: false
+agent_counts = np.zeros((model.grid.width, model.grid.height))
+
+for cell in model.grid.all_cells:
+    agent_counts[cell.coordinate] = len(cell.agents)
+# Plot using seaborn, with a visual size of 5x5
+g = sns.heatmap(agent_counts, cmap="viridis", annot=True, cbar=False, square=True)
+g.figure.set_size_inches(3, 3)
+g.set(title="Number of agents on each cell of the grid");
+```
+
+- the agents are all in one corner and there are several agents per cell
+- the search space is discrete so very similar agents land at the same coordinates
+- i am note sure if this makes sense
+
+
+# Fitting the model
+
+- big "?": "For the parameter optimization of the models, we used the Simulated Annealing method implemented in NetLogo’s BehaviorSearch (Stonedah, 2010)." [@bader, p. 1117]
+- i don't know how to do this in python 
+- no participant data available in the osf 
+
+# Evaluation criteria
+
+- i have listed these because they could maybe interesting criteria to consider for other evaluations of semantic models and participants data 
+
+- according to [@bader] there are several criteria that could be used for evaluation:
+- the similarity between a word and the words preceding it
+- "ratio of pairwise similarity over the subject’s mean similarity by patch entry position"
+-  i am not sure what ratio of pairwise similarity could be. Does it check if the model at a global-local switch is close enough to the participants responses at occasions when they switch to different categories? 
+- the residual proximity (mean similarity to all possible remaining words) of an item to an item’s position before or after a patch transition
+- the mean ratio between the inter-item retrieval time (IRT) for an item and the participant’s mean IRT over the entire task, relative to the order of entry for the item. - distribution of numbers of words, similarity and frequency values 
+- the average number of patches, and the average patch size. 
+
+
