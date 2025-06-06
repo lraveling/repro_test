@@ -4,6 +4,8 @@ WORKDIR := $(CURDIR)
 # list below your targets and their recipies
 all:
 
+abm_semantics.pdf: semantic_foraging.qmd
+	quarto render semantic_foraging.qmd --to pdf
 ### Wrap Commands ###
 # if a command is to be send to another process e.g. a container/scheduler use:
 # $(RUN1) mycommand --myflag $(RUN2)
