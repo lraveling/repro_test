@@ -1,0 +1,31 @@
+---
+title: "set up the github project for reproducibility with repro"
+author: "Laura Raveling"
+date: "5/22/2021"
+format: 
+  html:
+    code-fold: true
+
+repro:
+    - here
+    - tidyverse
+    - lubridate
+    - aaronpeikert/repro@fc7e884
+---
+
+- i also relied on this tutorial <https://happygitwithr.com/>
+- try it with the "github first workflow"
+- by using github first, you first create the repo on github, and then proceed with different usethis functions 
+- this seems to be the easier way and can be combined with the tools from repro package after setting up the github repository 
+- configure repository links between local and github as specified in chapter 15 of happy git with R
+- check push and pull connections from command line: git remote -v
+- create personal access tokens and verify with usethis 
+
+## usage of Docker and Make 
+- create a Docker Image with repro
+```{r}
+repro::automate()
+```
+
+- alter the makefile to specify the rule that creates your document 
+- in my case, it was the rule from lines 7 and 8 in the Makefile, but it depends your own recipe
